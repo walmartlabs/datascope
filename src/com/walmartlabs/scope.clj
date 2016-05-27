@@ -66,7 +66,7 @@
   "Other types wrap one or more values (a map, sequence, vector, etc.)"
 
 
-  (render [v state]
+  (render-composite [v state]
     "Renders the value as a new node (this is often quite recursive).
 
     Modifies and returns a new state.
@@ -95,7 +95,7 @@
     [state nil]
     (if-let [value-id (get-in state [:values v])]
       [state value-id]
-      (let [state' (render v state)]
+      (let [state' (render-composite v state)]
         [state' (get-in state' [:values v])]))))
 
 (defn ^:private cell
@@ -135,8 +135,37 @@
                                           label-chunk
                                           "</table>>];"))))
 
+(defn ^:private render-vector
+  [state v]
+  (let [vec-id (gen-value-id state :vec)
+        reducer (fn [[state label-chunk] i v]
+                  (let [[state' cell-chunk] (cell state vec-id :i v i)]
+                    [state' (str label-chunk "<tr>" cell-chunk "</tr>")]))
+        [state' label-chunk] (reduce-kv reducer
+                                     [(assoc-in state [:values v] vec-id) ""]
+                                     v)]
+    (assoc-in state' [:nodes vec-id] (str "[shape=none, label=<<table>"
+                                          label-chunk
+                                          "</table>>];"))))
+
 (extend-protocol Composite
 
   IPersistentMap
-  (render [m state]
-    (render-map state m)))
+  (render-composite [m state]
+    (render-map state m))
+
+  IPersistentVector
+  (render-composite [v state]
+    (render-vector state v)))
+
+
+(defn render
+  [root-value]
+  (let [{:keys [nodes edges]} (render-composite root-value {})]
+    (with-out-str
+      (println "digraph G { rankdir=LR;")
+      (doseq [[id text] nodes]
+        (println (str id " " text)))
+      (doseq [[from to] edges]
+        (println (str from " -> " to ";")))
+      (println "}"))))
