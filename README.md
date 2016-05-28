@@ -1,4 +1,4 @@
-# com.walmartlabs/scope
+# com.walmartlabs/datascope
 
 A library that can be used to render typical Clojure data structures using
 Graphviz.

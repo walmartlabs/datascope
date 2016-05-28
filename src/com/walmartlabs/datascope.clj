@@ -1,4 +1,4 @@
-(ns com.walmartlabs.scope
+(ns com.walmartlabs.datascope
   (:require [rhizome.viz :as viz]
             [clojure.string :as str])
   (:import [clojure.lang ISeq IPersistentVector IPersistentMap IDeref Symbol Keyword]
@@ -10,6 +10,9 @@
   (classify [v]
     "Classification method extending on to many classes.")
   )
+
+;; It's looking like this is not all that necessary; just
+;; need a method to classify as scalar or not scalar.
 
 (extend-protocol Classifier
 
@@ -127,8 +130,7 @@
         empty-label (pr-str v)]
     (-> state
         (assoc-in [:values v] id)
-        (assoc-in [:nodes id] (str "[shape=none, label=" \" empty-label \" \]))))
-  )
+        (assoc-in [:nodes id] (str "[shape=none, label=" \" empty-label \" \])))))
 
 (defn ^:private render-map
   [state m]
