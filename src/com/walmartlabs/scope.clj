@@ -1,4 +1,6 @@
 (ns com.walmartlabs.scope
+  (:require [rhizome.viz :as viz]
+            [clojure.string :as str])
   (:import [clojure.lang ISeq IPersistentVector IPersistentMap IDeref Symbol Keyword]
            [java.util Date]))
 
@@ -98,6 +100,13 @@
       (let [state' (render-composite v state)]
         [state' (get-in state' [:values v])]))))
 
+(defn ^:private html-safe
+  [s]
+  (-> s
+      (str/replace "&" "&amp;")
+      (str/replace "<" "&lt;")
+      (str/replace ">" "&gt;")))
+
 (defn ^:private cell
   [state id prefix v i]
   (let [[state' value-id] (maybe-render state v)
@@ -106,48 +115,80 @@
                     (assoc-in state' [:edges (str id ":" port)] value-id)
                     state')]
     [new-state (str (if port
-                      (str "<td port=" \" port \" ">")
+                      (str "<td port=" \" port \" "> ")
                       "<td>")
                     (when-not port
-                      (as-label v))                         ; TODO: escape HTML
+                      (-> v as-label html-safe))
                     "</td>")]))
+
+(defn ^:private add-empty
+  [state type v]
+  (let [id (gen-value-id state type)
+        empty-label (pr-str v)]
+    (-> state
+        (assoc-in [:values v] id)
+        (assoc-in [:nodes id] (str "[shape=none, label=" \" empty-label \" \]))))
+  )
 
 (defn ^:private render-map
   [state m]
-  (let [map-id (gen-value-id state :map)
-        reduction-step (fn [state k v i]
-                         (let [[k-state k-chunk] (cell state map-id :k k i)
-                               [v-state v-chunk] (cell k-state map-id :v v i)]
-                           [v-state (str "<tr>"
-                                         k-chunk
-                                         v-chunk
-                                         "</tr>")]))
-        ikvs (map-indexed (fn [i [k v]]
-                            [i k v])
-                          m)
-        reducer (fn [[state label-chunk] [i k v]]
-                  (let [[state' row-chunk] (reduction-step state k v i)]
-                    [state' (str label-chunk row-chunk)]))
-        [state' label-chunk] (reduce reducer
-                                     [(assoc-in state [:values m] map-id) ""]
-                                     ikvs)]
-    (assoc-in state' [:nodes map-id] (str "[shape=none, label=<<table>"
-                                          label-chunk
-                                          "</table>>];"))))
+  (if (empty? m)
+    (add-empty state :map m)
+    (let [map-id (gen-value-id state :map)
+          reduction-step (fn [state k v i]
+                           (let [[k-state k-chunk] (cell state map-id :k k i)
+                                 [v-state v-chunk] (cell k-state map-id :v v i)]
+                             [v-state (str "<tr>"
+                                           k-chunk
+                                           v-chunk
+                                           "</tr>")]))
+          ikvs (map-indexed (fn [i [k v]]
+                              [i k v])
+                            m)
+          reducer (fn [[state label-chunk] [i k v]]
+                    (let [[state' row-chunk] (reduction-step state k v i)]
+                      [state' (str label-chunk row-chunk)]))
+          [state' label-chunk] (reduce reducer
+                                       [(assoc-in state [:values m] map-id) ""]
+                                       ikvs)]
+      (assoc-in state' [:nodes map-id] (str "[shape=none, label=<<table>"
+                                            label-chunk
+                                            "</table>>];")))))
 
 (defn ^:private render-vector
   [state v]
-  (let [vec-id (gen-value-id state :vec)
-        reducer (fn [[state label-chunk] i v]
-                  (let [[state' cell-chunk] (cell state vec-id :i v i)]
-                    [state' (str label-chunk "<tr>" cell-chunk "</tr>")]))
-        [state' label-chunk] (reduce-kv reducer
-                                     [(assoc-in state [:values v] vec-id) ""]
-                                     v)]
-    (assoc-in state' [:nodes vec-id] (str "[shape=none, label=<<table>"
-                                          label-chunk
-                                          "</table>>];"))))
+  (if (empty? v)
+    (add-empty state :vec v)
+    (let [vec-id (gen-value-id state :vec)
+          reducer (fn [[state label-chunk] i v]
+                    (let [[state' cell-chunk] (cell state vec-id :i v i)]
+                      [state' (str label-chunk "<tr>" cell-chunk "</tr>")]))
+          [state' label-chunk] (reduce-kv reducer
+                                          [(assoc-in state [:values v] vec-id) ""]
+                                          v)]
+      (assoc-in state' [:nodes vec-id] (str "[shape=none, label=<<table>"
+                                            label-chunk
+                                            "</table>>];")))))
 
+(defn ^:private render-seq
+  [state coll]
+  (if (empty? coll)
+    (add-empty state :seq coll)
+    (let [seq-id (gen-value-id state :seq)
+          max-seq (:max-seq state 10)
+          reducer (fn [[state label-chunk] [i v]]
+                    (if (= i max-seq)
+                      [state (str label-chunk "<tr><td>...</td></tr>")]
+                      (let [[state' cell-chunk] (cell state seq-id :i v i)]
+                        [state' (str label-chunk "<tr>" cell-chunk "</tr>")])))
+          ivs (->> (map vector (iterate inc 0) coll)
+                   (take (inc max-seq)))
+          [state' label-chunk] (reduce reducer
+                                       [(assoc-in state [:values coll] seq-id) ""]
+                                       ivs)]
+      (assoc-in state' [:nodes seq-id] (str "[shape=none, label=<<table>"
+                                            label-chunk
+                                            "</table>>];")))))
 (extend-protocol Composite
 
   IPersistentMap
@@ -156,16 +197,21 @@
 
   IPersistentVector
   (render-composite [v state]
-    (render-vector state v)))
+    (render-vector state v))
 
+  ISeq
+  (render-composite [coll state]
+    (render-seq state coll)))
 
 (defn render
   [root-value]
-  (let [{:keys [nodes edges]} (render-composite root-value {})]
-    (with-out-str
-      (println "digraph G { rankdir=LR;")
-      (doseq [[id text] nodes]
-        (println (str id " " text)))
-      (doseq [[from to] edges]
-        (println (str from " -> " to ";")))
-      (println "}"))))
+  (let [{:keys [nodes edges]} (render-composite root-value {})
+        dot (with-out-str
+              (println "digraph G { rankdir=LR;")
+              (doseq [[id text] nodes]
+                (println (str id " " text)))
+              (doseq [[from to] edges]
+                (println (str from " -> " to ";")))
+              (println "}"))]
+    (println dot)
+    (-> dot viz/dot->image viz/view-image)))
