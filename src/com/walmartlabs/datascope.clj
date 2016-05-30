@@ -130,7 +130,7 @@
         empty-label (pr-str v)]
     (-> state
         (assoc-in [:values v] id)
-        (assoc-in [:nodes id] (str "[shape=none, label=" \" empty-label \" \])))))
+        (assoc-in [:nodes :empty id] (str "[label=" \" empty-label \" \])))))
 
 (defn ^:private render-map
   [state m]
@@ -153,9 +153,9 @@
           [state' label-chunk] (reduce reducer
                                        [(assoc-in state [:values m] map-id) ""]
                                        ikvs)]
-      (assoc-in state' [:nodes map-id] (str "[shape=none, label=<<table>"
-                                            label-chunk
-                                            "</table>>];")))))
+      (assoc-in state' [:nodes :maps map-id] (str "[label=<<table>"
+                                                  label-chunk
+                                                  "</table>>]")))))
 
 (defn ^:private render-vector
   [state v]
@@ -168,9 +168,9 @@
           [state' label-chunk] (reduce-kv reducer
                                           [(assoc-in state [:values v] vec-id) ""]
                                           v)]
-      (assoc-in state' [:nodes vec-id] (str "[shape=none, label=<<table>"
-                                            label-chunk
-                                            "</table>>];")))))
+      (assoc-in state' [:nodes :vecs vec-id] (str "[label=<<table>"
+                                                  label-chunk
+                                                  "</table>>]")))))
 
 (defn ^:private render-seq
   [state coll]
@@ -188,9 +188,9 @@
           [state' label-chunk] (reduce reducer
                                        [(assoc-in state [:values coll] seq-id) ""]
                                        ivs)]
-      (assoc-in state' [:nodes seq-id] (str "[shape=none, label=<<table>"
-                                            label-chunk
-                                            "</table>>];")))))
+      (assoc-in state' [:nodes :seqs seq-id] (str "[label=<<table>"
+                                                  label-chunk
+                                                  "</table>>]")))))
 (extend-protocol Composite
 
   IPersistentMap
@@ -205,15 +205,24 @@
   (render-composite [coll state]
     (render-seq state coll)))
 
+(defn ^:private render-nodes
+  [nodes key defaults]
+  (println (str "\n  node [" defaults "];"))
+  (doseq [[id text] (get nodes key)]
+    (println (str "  "  id " " text ";"))))
+
 (defn render
   [root-value]
   (let [{:keys [nodes edges]} (render-composite root-value {})
         dot (with-out-str
-              (println "digraph G { rankdir=LR;")
-              (doseq [[id text] nodes]
-                (println (str id " " text)))
+              (println "digraph G {\n  rankdir=LR;")
+              (render-nodes nodes :maps "shape=none")
+              (render-nodes nodes :vecs "shape=none")
+              (render-nodes nodes :seqs "shape=none")
+              (render-nodes nodes :empty "shape=none")
+              (println)
               (doseq [[from to] edges]
-                (println (str from " -> " to ";")))
+                (println (str "  " from " -> " to ";")))
               (println "}"))]
     (println dot)
     (-> dot viz/dot->image viz/view-image)))
