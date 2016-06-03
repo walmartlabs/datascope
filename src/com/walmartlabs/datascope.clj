@@ -153,7 +153,7 @@
           [state' label-chunk] (reduce reducer
                                        [(assoc-in state [:values m] map-id) ""]
                                        ikvs)]
-      (assoc-in state' [:nodes :maps map-id] (str "[label=<<table>"
+      (assoc-in state' [:nodes :maps map-id] (str "[label=<<table border=\"0\" cellborder=\"1\">\""
                                                   label-chunk
                                                   "</table>>]")))))
 
@@ -168,7 +168,7 @@
           [state' label-chunk] (reduce-kv reducer
                                           [(assoc-in state [:values v] vec-id) ""]
                                           v)]
-      (assoc-in state' [:nodes :vecs vec-id] (str "[label=<<table>"
+      (assoc-in state' [:nodes :vecs vec-id] (str "[label=<<table border=\"0\" cellborder=\"1\">"
                                                   label-chunk
                                                   "</table>>]")))))
 
@@ -188,7 +188,7 @@
           [state' label-chunk] (reduce reducer
                                        [(assoc-in state [:values coll] seq-id) ""]
                                        ivs)]
-      (assoc-in state' [:nodes :seqs seq-id] (str "[label=<<table>"
+      (assoc-in state' [:nodes :seqs seq-id] (str "[label=<<table border=\"0\" cellborder=\"1\">\""
                                                   label-chunk
                                                   "</table>>]")))))
 (extend-protocol Composite
@@ -207,7 +207,8 @@
 
 (defn ^:private render-nodes
   [nodes key defaults]
-  (println (str "\n  node [" defaults "];"))
+  (when-not (str/blank? defaults)
+    (println (str "\n  node [" defaults "];")))
   (doseq [[id text] (get nodes key)]
     (println (str "  "  id " " text ";"))))
 
@@ -216,10 +217,11 @@
   (let [{:keys [nodes edges]} (render-composite root-value {})
         dot (with-out-str
               (println "digraph G {\n  rankdir=LR;")
-              (render-nodes nodes :maps "shape=none")
-              (render-nodes nodes :vecs "shape=none")
-              (render-nodes nodes :seqs "shape=none")
-              (render-nodes nodes :empty "shape=none")
+              (println "  node [shape=box, style=\"rounded,filled\", fillcolor=\"#FAF0E6\"];")
+              (render-nodes nodes :maps "")
+              (render-nodes nodes :seqs "")
+              (render-nodes nodes :vecs "style=filled")
+              (render-nodes nodes :empty "shape=none, style=\"\", fontsize=32")
               (println)
               (doseq [[from to] edges]
                 (println (str "  " from " -> " to ";")))
