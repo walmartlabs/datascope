@@ -1,7 +1,7 @@
 (ns com.walmartlabs.datascope
   (:require [rhizome.viz :as viz]
             [clojure.string :as str])
-  (:import [clojure.lang ISeq IPersistentVector IPersistentMap]))
+  (:import [clojure.lang ISeq IPersistentVector IPersistentMap IDeref]))
 
 (defprotocol Scalar
   "Scalars appear as keys and values and this assists with rendering of them as such."
@@ -158,6 +158,27 @@
                                         "</table>>]"))
        node-id])))
 
+(defn ^:private render-ref
+  [state ref]
+  (let [[state-1 node-id] (value->node-id state ref)
+        ref-val (deref ref)
+        [state-2 target-node-id] (maybe-render state-1 ref-val)
+        type-name (-> ref
+                      class
+                      .getName
+                      (str/replace #"^clojure\.lang\." ""))
+        label (str "<<b>"
+                   (html-safe type-name)
+                   "</b>"
+                   (when-not target-node-id
+                     (str "<br/>" (-> ref-val as-label html-safe)))
+                   ">")
+        state-3 (cond-> (-> state-2
+                            (add-composite-mapping ref node-id)
+                            (add-node ref node-id (str "[label=" label "]")))
+                  target-node-id (assoc-in [:edges node-id] target-node-id))]
+    [state-3 node-id]))
+
 (defn ^:private render-vector
   [state v]
   (if (empty? v)
@@ -220,7 +241,16 @@
 
   (composite-type [_] :seq)
 
-  (use-identity? [coll] (seq coll)))
+  (use-identity? [coll] (seq coll))
+
+  IDeref
+
+  (render-composite [ref state]
+    (render-ref state ref))
+
+  (composite-type [_] :ref)
+
+  (use-identity? [_] true))
 
 (defn ^:private render-nodes
   [nodes key defaults]
@@ -241,6 +271,7 @@
       (render-nodes nodes :map "")
       (render-nodes nodes :seq "")
       (render-nodes nodes :vec "style=filled")
+      (render-nodes nodes :ref "shape=ellipse")
       (render-nodes nodes :empty "shape=none, style=\"\", fontsize=32")
       (println)
       (doseq [[from to] edges]
