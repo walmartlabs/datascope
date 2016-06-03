@@ -41,10 +41,12 @@
     :edges
     : map from node id to node id; the source node is may be extended with a port (e.g., \"map_1:v3\")\"")
 
-  (can-cache? [v]
-    "Returns true if it is possible to cache the mapping of value to node id.
-    This is false for (most) sequences, as sequences can be infinite and therefore
-    make bad keys (it takes infinitely long to compute the key hash)."))
+  (use-identity? [v]
+    "Returns true if it is not possible to cache the mapping of value to node id.
+    This is true for (most) sequences, as sequences can be infinite and therefore
+    make bad keys (it takes infinitely long to compute the key hash).
+
+    It is false for all finite types (map, vector, and so forth)."))
 
 (defn ^:private type->node-id
   "Returns tuple of updated state and node id."
@@ -60,6 +62,12 @@
   [state value]
   (type->node-id state (composite-type value)))
 
+(defn ^:private composite-key
+  [value]
+  (if (use-identity? value)
+    (System/identityHashCode value)
+    value))
+
 (defn ^:private maybe-render
   "Maybe render the value (recursively).
 
@@ -71,9 +79,9 @@
   ;; Anything not a Composite is a Scalar
   (if-not (satisfies? Composite v)
     [state nil]
-    (let [type (composite-type v)]
-      (if-let [node-id (and (can-cache? v)
-                            (get-in state [:values type v]))]
+    (let [type (composite-type v)
+          k (composite-key v)]
+      (if-let [node-id (get-in state [:values type k])]
         [state node-id]
         (render-composite v state)))))
 
@@ -107,9 +115,8 @@
   Sequences may be infinite and can't be used as keys, so in some cases,
   no mapping is added: equivalent sequences will render as distinct nodes."
   [state value node-id]
-  (if (can-cache? value)
-    (assoc-in state [:values (composite-type value) value] node-id)
-    state))
+  (let [k (composite-key value)]
+    (assoc-in state [:values (composite-type value) k] node-id)))
 
 (defn ^:private add-node
   [state value node-id node]
@@ -196,7 +203,7 @@
     (render-map state m))
 
   (composite-type [_] :map)
-  (can-cache? [_] true)
+  (use-identity? [_] false)
 
   IPersistentVector
 
@@ -204,7 +211,7 @@
     (render-vector state v))
 
   (composite-type [_] :vec)
-  (can-cache? [_] true)
+  (use-identity? [_] false)
 
   ISeq
 
@@ -213,7 +220,7 @@
 
   (composite-type [_] :seq)
 
-  (can-cache? [coll] (empty? coll)))
+  (use-identity? [coll] (seq coll)))
 
 (defn ^:private render-nodes
   [nodes key defaults]
