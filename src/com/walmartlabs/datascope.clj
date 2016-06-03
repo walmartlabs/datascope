@@ -12,7 +12,10 @@
 (extend-protocol Scalar
 
   Object
-  (as-label [v] (pr-str v)))
+  (as-label [v] (pr-str v))
+
+  nil
+  (as-label [v] "nil"))
 
 
 (defprotocol Composite
@@ -202,7 +205,7 @@
   (let [{:keys [nodes edges]} (render-composite root-value {})]
     (with-out-str
                (println "digraph G {\n  rankdir=LR;")
-               (println "  node [shape=box, style=\"rounded,filled\", fillcolor=\"#FAF0E6\"];")
+               (println "  node [shape=plaintext, style=\"rounded,filled\", fillcolor=\"#FAF0E6\"];")
                (render-nodes nodes :map "")
                (render-nodes nodes :seq "")
                (render-nodes nodes :vec "style=filled")
