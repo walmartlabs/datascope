@@ -27,7 +27,7 @@
   (render-composite [v state]
     "Renders the value as a new node (this is often quite recursive).
 
-    Modifies and returns a new state.
+    Returns a tuple of the new state, and the node-id just rendered.
 
     State has a number of keys:
 
@@ -41,13 +41,24 @@
     :edges
     : map from node id to node id; the source node is may be extended with a port (e.g., \"map_1:v3\")\"")
 
-  )
+  (can-cache? [v]
+    "Returns true if it is possible to cache the mapping of value to node id.
+    This is false for (most) sequences, as sequences can be infinite and therefore
+    make bad keys (it takes infinitely long to compute the key hash)."))
+
+(defn ^:private type->node-id
+  "Returns tuple of updated state and node id."
+  [state type]
+  (let [ix (get state ::ix 0)]
+    [(assoc state ::ix (inc ix))
+     (str (name type) "_" ix)]))
 
 (defn ^:private value->node-id
-  "Computes a unique Graphviz node id for the value (based on the value's composite type)."
+  "Computes a unique Graphviz node id for the value (based on the value's composite type).
+
+  Returns tuple of updated state and node id."
   [state value]
-  (let [type (composite-type value)]
-    (str (name type) "_" (count (get-in state [:values type])))))
+  (type->node-id state (composite-type value)))
 
 (defn ^:private maybe-render
   "Maybe render the value (recursively).
@@ -61,10 +72,10 @@
   (if-not (satisfies? Composite v)
     [state nil]
     (let [type (composite-type v)]
-      (if-let [node-id (get-in state [:values type v])]
+      (if-let [node-id (and (can-cache? v)
+                            (get-in state [:values type v]))]
         [state node-id]
-        (let [state' (render-composite v state)]
-          [state' (get-in state' [:values type v])])))))
+        (render-composite v state)))))
 
 (defn ^:private html-safe
   [s]
@@ -91,9 +102,14 @@
 (defn ^:private add-composite-mapping
   "Store a composite value for later access (this prevents identical or same nodes from being rendered
   multiple times).  Keyed on the value's composite type, then the composite value itself, the ultimate value is the
-  node-id."
+  node-id.
+
+  Sequences may be infinite and can't be used as keys, so in some cases,
+  no mapping is added: equivalent sequences will render as distinct nodes."
   [state value node-id]
-  (assoc-in state [:values (composite-type value) value] node-id))
+  (if (can-cache? value)
+    (assoc-in state [:values (composite-type value) value] node-id)
+    state))
 
 (defn ^:private add-node
   [state value node-id node]
@@ -102,17 +118,18 @@
 
 (defn ^:private add-empty
   [state v]
-  (let [id (value->node-id state v)
+  (let [[state' node-id] (type->node-id state :empty)
         empty-label (pr-str v)]
-    (-> state
-        (add-composite-mapping v id)
-        (assoc-in [:nodes :empty id] (str "[label=" \" empty-label \" \])))))
+    [(-> state'
+         (add-composite-mapping v node-id)
+         (assoc-in [:nodes :empty node-id] (str "[label=" \" empty-label \" \])))
+     node-id]))
 
 (defn ^:private render-map
   [state m]
   (if (empty? m)
     (add-empty state m)
-    (let [node-id (value->node-id state m)
+    (let [[state' node-id] (value->node-id state m)
           reduction-step (fn [state k v i]
                            (let [[k-state k-chunk] (cell state node-id :k k i)
                                  [v-state v-chunk] (cell k-state node-id :v v i)]
@@ -126,33 +143,35 @@
           reducer (fn [[state label-chunk] [i k v]]
                     (let [[state' row-chunk] (reduction-step state k v i)]
                       [state' (str label-chunk row-chunk)]))
-          [state' rows-chunk] (reduce reducer
-                                      [(add-composite-mapping state m node-id) ""]
-                                      ikvs)]
-      (add-node state' m node-id (str "[label=<<table border=\"0\" cellborder=\"1\">\""
-                                      rows-chunk
-                                      "</table>>]")))))
+          [state'' rows-chunk] (reduce reducer
+                                       [(add-composite-mapping state' m node-id) ""]
+                                       ikvs)]
+      [(add-node state'' m node-id (str "[label=<<table border=\"0\" cellborder=\"1\">\""
+                                        rows-chunk
+                                        "</table>>]"))
+       node-id])))
 
 (defn ^:private render-vector
   [state v]
   (if (empty? v)
     (add-empty state v)
-    (let [node-id (value->node-id state v)
+    (let [[state' node-id] (value->node-id state v)
           reducer (fn [[state label-chunk] i v]
                     (let [[state' cell-chunk] (cell state node-id :i v i)]
                       [state' (str label-chunk "<tr>" cell-chunk "</tr>")]))
-          [state' label-chunk] (reduce-kv reducer
-                                          [(add-composite-mapping state v node-id) ""]
-                                          v)]
-      (add-node state' v node-id (str "[label=<<table border=\"0\" cellborder=\"1\">"
-                                      label-chunk
-                                      "</table>>]")))))
+          [state'' label-chunk] (reduce-kv reducer
+                                           [(add-composite-mapping state' v node-id) ""]
+                                           v)]
+      [(add-node state'' v node-id (str "[label=<<table border=\"0\" cellborder=\"1\">"
+                                        label-chunk
+                                        "</table>>]"))
+       node-id])))
 
 (defn ^:private render-seq
   [state coll]
   (if (empty? coll)
     (add-empty state coll)
-    (let [node-id (value->node-id state coll)
+    (let [[state' node-id] (value->node-id state coll)
           max-seq (:max-seq state 10)
           reducer (fn [[state label-chunk] [i v]]
                     (if (= i max-seq)
@@ -161,12 +180,14 @@
                         [state' (str label-chunk "<tr>" cell-chunk "</tr>")])))
           ivs (->> (map vector (iterate inc 0) coll)
                    (take (inc max-seq)))
-          [state' label-chunk] (reduce reducer
-                                       [(add-composite-mapping state coll node-id) ""]
-                                       ivs)]
-      (add-node state' coll node-id (str "[label=<<table border=\"0\" cellborder=\"1\">\""
-                                         label-chunk
-                                         "</table>>]")))))
+          [state'' label-chunk] (reduce reducer
+                                        [(add-composite-mapping state' coll node-id) ""]
+                                        ivs)]
+      [(add-node state'' coll node-id (str "[label=<<table border=\"0\" cellborder=\"1\">\""
+                                           label-chunk
+                                           "</table>>]"))
+       node-id])))
+
 (extend-protocol Composite
 
   IPersistentMap
@@ -175,6 +196,7 @@
     (render-map state m))
 
   (composite-type [_] :map)
+  (can-cache? [_] true)
 
   IPersistentVector
 
@@ -182,13 +204,16 @@
     (render-vector state v))
 
   (composite-type [_] :vec)
+  (can-cache? [_] true)
 
   ISeq
 
   (render-composite [coll state]
     (render-seq state coll))
 
-  (composite-type [_] :seq))
+  (composite-type [_] :seq)
+
+  (can-cache? [coll] (empty? coll)))
 
 (defn ^:private render-nodes
   [nodes key defaults]
@@ -202,18 +227,18 @@
   description) of the "
   [root-value]
   {:pre [(satisfies? Composite root-value)]}
-  (let [{:keys [nodes edges]} (render-composite root-value {})]
+  (let [[{:keys [nodes edges]}] (render-composite root-value {})]
     (with-out-str
-               (println "digraph G {\n  rankdir=LR;")
-               (println "  node [shape=plaintext, style=\"rounded,filled\", fillcolor=\"#FAF0E6\"];")
-               (render-nodes nodes :map "")
-               (render-nodes nodes :seq "")
-               (render-nodes nodes :vec "style=filled")
-               (render-nodes nodes :empty "shape=none, style=\"\", fontsize=32")
-               (println)
-               (doseq [[from to] edges]
-                 (println (str "  " from " -> " to ";")))
-               (println "}"))))
+      (println "digraph G {\n  rankdir=LR;")
+      (println "  node [shape=plaintext, style=\"rounded,filled\", fillcolor=\"#FAF0E6\"];")
+      (render-nodes nodes :map "")
+      (render-nodes nodes :seq "")
+      (render-nodes nodes :vec "style=filled")
+      (render-nodes nodes :empty "shape=none, style=\"\", fontsize=32")
+      (println)
+      (doseq [[from to] edges]
+        (println (str "  " from " -> " to ";")))
+      (println "}"))))
 
 (defn view
   "Renders the root value as a Graphviz document, then
