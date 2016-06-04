@@ -3,6 +3,8 @@
 A library that can be used to render typical Clojure data structures using
 Graphviz.
 
+[API Documentation](http://walmartlabs.github.io/datascope/)
+
 ## Usage
 
 Pretty printing 
