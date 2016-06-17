@@ -17,9 +17,8 @@
   nil
   (as-label [_] "nil"))
 
-
 (defprotocol Composite
-  "Other types wrap one or more values (a map, sequence, vector, etc.)"
+  "Other types wrap one or more values (a map, sequence, vector, reference, etc.)"
 
   (composite-type [v]
     "Returns :map, :seq, :vec. This key is used when identifying empty values and so forth.")
@@ -32,11 +31,13 @@
     State has a number of keys:
 
     :values
-    : map from a non-scalar value to its unique id; this is used to create edges, and track
-      which values have already been rendered.
+    : map from a non-scalar value to its unique node id; this is used to create edges, and track
+      which values have already been rendered. The key is the default hash code for the
+      value (e.g., keyed on identity, not on value).
 
     :nodes
-    : map from value id to rendered text for the node; rendering adds a value to this map.
+    : a map (keyed on composite type) of nodes of that type, keyed on node id.
+      Value is the rendered text for the node.
 
     :edges
     : map from node id to node id; the source node is may be extended with a port (e.g., \"map_1:v3\")\""))
@@ -45,23 +46,15 @@
 
 (def ^:private label-end "</table>>]")
 
-(defn ^:private type->node-id
-  "Returns tuple of updated state and node id."
-  [state type]
-  (let [ix (get state ::ix 0)]
-    [(assoc state ::ix (inc ix))
-     (str (name type) "_" ix)]))
-
-(defn ^:private value->node-id
-  "Computes a unique Graphviz node id for the value (based on the value's composite type).
-
-  Returns tuple of updated state and node id."
-  [state value]
-  (type->node-id state (composite-type value)))
-
 (defn ^:private composite-key
   [value]
   (System/identityHashCode value))
+
+(defn ^:private value->node-id
+  "Computes a unique Graphviz node id for the value (based on the value's composite type and
+  composite key)."
+  [value]
+  (str (name (composite-type value)) "_" (composite-key value)))
 
 (defn ^:private maybe-render
   "Maybe render the value (recursively).
@@ -86,7 +79,6 @@
       (str/replace "&" "&amp;")
       (str/replace "<" "&lt;")
       (str/replace ">" "&gt;")))
-
 
 (defn ^:private type-name
   [obj]
@@ -136,11 +128,11 @@
   (assoc-in state [:nodes (composite-type value) node-id] node))
 
 (defn ^:private add-empty
-  [state v]
-  (let [[state' node-id] (type->node-id state :empty)
-        empty-label (pr-str v)]
-    [(-> state'
-         (add-composite-mapping v node-id)
+  [state value]
+  (let [node-id (str "empty_" (name (composite-type value)))
+        empty-label (pr-str value)]
+    [(-> state
+         (add-composite-mapping value node-id)
          (assoc-in [:nodes :empty node-id] (str "[label=" \" empty-label \" \])))
      node-id]))
 
@@ -148,7 +140,7 @@
   [state m]
   (if (empty? m)
     (add-empty state m)
-    (let [[state' node-id] (value->node-id state m)
+    (let [node-id (value->node-id m)
           reduction-step (fn [state k v i]
                            (let [[k-state k-chunk] (cell state node-id :k k i)
                                  [v-state v-chunk] (cell k-state node-id :v v i)]
@@ -162,33 +154,33 @@
           reducer (fn [[state rows-chunk] [i k v]]
                     (let [[state' row-chunk] (reduction-step state k v i)]
                       [state' (str rows-chunk row-chunk)]))
-          [state'' key-value-rows] (reduce reducer
-                                       [(add-composite-mapping state' m node-id) ""]
-                                       ikvs)]
-      [(add-node state'' m node-id (str label-start
-                                        "<tr><td colspan=\"2\" border=\"0\">"
-                                        (type-name m)
-                                        "</td></tr>"
-                                        key-value-rows
-                                        label-end))
+          [state' key-value-rows] (reduce reducer
+                                          [(add-composite-mapping state m node-id) ""]
+                                          ikvs)]
+      [(add-node state' m node-id (str label-start
+                                       "<tr><td colspan=\"2\" border=\"0\">"
+                                       (type-name m)
+                                       "</td></tr>"
+                                       key-value-rows
+                                       label-end))
        node-id])))
 
 (defn ^:private render-ref
   [state ref]
-  (let [[state-1 node-id] (value->node-id state ref)
+  (let [node-id (value->node-id ref)
         ref-val (deref ref)
-        [state-2 target-node-id] (maybe-render state-1 ref-val)
+        [state-1 target-node-id] (maybe-render state ref-val)
         label (str "<<b>"
                    (type-name ref)
                    "</b>"
                    (when-not target-node-id
                      (str "<br/>" (-> ref-val as-label html-safe)))
                    ">")
-        state-3 (cond-> (-> state-2
+        state-2 (cond-> (-> state-1
                             (add-composite-mapping ref node-id)
                             (add-node ref node-id (str "[label=" label "]")))
                   target-node-id (assoc-in [:edges node-id] target-node-id))]
-    [state-3 node-id]))
+    [state-2 node-id]))
 
 (defn ^:private render-elements
   "Renders the elements as a series of TR/TD rows.  Returns tuple of updated state and
@@ -205,9 +197,9 @@
   [state v]
   (if (empty? v)
     (add-empty state v)
-    (let [[state' node-id] (value->node-id state v)
-          [state'' element-rows] (render-elements state' node-id v)]
-      [(add-node state'' v node-id (str label-start
+    (let [node-id (value->node-id v)
+          [state' element-rows] (render-elements state node-id v)]
+      [(add-node state' v node-id (str label-start
                                         (type-name-row v)
                                         element-rows
                                         label-end))
@@ -217,7 +209,7 @@
   [state coll]
   (if (empty? coll)
     (add-empty state coll)
-    (let [[state' node-id] (value->node-id state coll)
+    (let [node-id (value->node-id coll)
           max-seq (:max-seq state 10)
           reducer (fn [[state label-chunk] [i v]]
                     (if (= i max-seq)
@@ -226,22 +218,22 @@
                         [state' (str label-chunk "<tr>" cell-chunk "</tr>")])))
           ivs (->> (map vector (iterate inc 0) coll)
                    (take (inc max-seq)))
-          [state'' element-rows] (reduce reducer
-                                         [(add-composite-mapping state' coll node-id) ""]
-                                         ivs)]
-      [(add-node state'' coll node-id (str label-start
-                                           (type-name-row coll)
-                                           element-rows
-                                           label-end))
+          [state' element-rows] (reduce reducer
+                                        [(add-composite-mapping state coll node-id) ""]
+                                        ivs)]
+      [(add-node state' coll node-id (str label-start
+                                          (type-name-row coll)
+                                          element-rows
+                                          label-end))
        node-id])))
 
 (defn ^:private render-set
   [state coll]
   (if (empty? coll)
     (add-empty state coll)
-    (let [[state' node-id] (value->node-id state coll)
-          [state'' label-chunk] (render-elements state' node-id (vec coll))]
-      [(add-node state'' coll node-id (str label-start
+    (let [node-id (value->node-id coll)
+          [state' label-chunk] (render-elements state node-id (vec coll))]
+      [(add-node state' coll node-id (str label-start
                                            (type-name-row coll) label-chunk
                                            label-end))
        node-id])))
@@ -285,7 +277,7 @@
 (defn ^:private render-nodes
   [nodes key defaults]
   (when-not (str/blank? defaults)
-    (println (str " \n node [" defaults "];")))
+    (println (str " \n  node [" defaults "];")))
   (doseq [[id text] (get nodes key)]
     (println (str "  " id " " text ";"))))
 
