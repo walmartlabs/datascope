@@ -26,7 +26,7 @@ data is connected and related.
           :empty {}})
 ```
 
-This will bring up a frame (care of [Rhizome](https://github.com/ztellman/rhizome)])
+This will bring up a frame (care of [Rhizome](https://github.com/ztellman/rhizome))
 that displays the following:
 
 ![example](basics.png)
@@ -40,8 +40,6 @@ that displays the following:
 * Refs, such as Atoms and Vars, are supported.
 
 * Sequences are abbreviated; Maps, Sets, and Vectors are always fully rendered.
-
-* There is not (yet) a limit on how deeply Datascope will recurse through the structures.
 
 Using the rest of the Rhizome API, you can easily save the images to disk
 instead of viewing them in a frame.
@@ -71,6 +69,8 @@ And, remember, Clojure code is data:
 * Open up more internal API to support rendering of more types
 
 * Rendering of JavaBeans
+
+* Render functions specially.
 
 ## License
 
