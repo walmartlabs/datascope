@@ -7,7 +7,9 @@ Graphviz.
 
 ## Usage
 
-Pretty printing 
+Pretty printing can only take you so far; eventually 
+a different visual representation is handy for really seeing how all you
+data is connected and related.
 
 
 ```
@@ -19,6 +21,7 @@ Pretty printing
           :enabled? true
           :vector [1 2 3 4]
           :sequence (iterate inc 1)
+          :set #{:science-fiction :romance :military}
           :atom (atom {:foo :bar :empty {}})
           :empty {}})
 ```
@@ -28,30 +31,46 @@ that displays the following:
 
 ![example](basics.png)
 
-* Maps and Sequences have rounded edges, Vectors have square edges.
+* Maps, Sets, and Sequences have rounded edges, Vectors have square edges.
 
-* The empty map, vector, and sequence are rendered specially.
+* Composite types are labeled with their (abbreviated) type.
 
-* No support for sets yet (early days!)
+* The empty map, vector, hash, and sequence values are rendered specially.
 
 * Refs, such as Atoms and Vars, are supported.
 
-* Sequences are abbreviated; Maps and Vectors are always fully rendered.
+* Sequences are abbreviated; Maps, Sets, and Vectors are always fully rendered.
 
 * There is not (yet) a limit on how deeply Datascope will recurse through the structures.
 
 Using the rest of the Rhizome API, you can easily save the images to disk
 instead of viewing them in a frame.
-         
-Datascope tries to be smart about rendering collections just once.
-If two collections are equal, they will render as a single node.
-          
-* For sequences (which can be lazy and infinite), the check is for
-  identity, not equivalence.
-* Maps and vectors with the same value but different meta data will be 
-  treated as a single node in the graph.
-* (Currently) meta-data is not presented in the graph.  
-         
+
+And, remember, Clojure code is data:
+
+
+```
+(require '[com.walmartlabs.datascope :as ds])
+
+(ds/view 
+'(defn save
+    [root-object file-name]
+    (-> (dot root-object)
+      viz/dot->image
+      (viz/save-image file-name))))
+```
+
+![save-function](save-function.png)
+
+## Upcoming Features
+
+* Optional rendering of meta data
+
+* Depth limit on rendering
+
+* Open up more internal API to support rendering of more types
+
+* Rendering of JavaBeans
 
 ## License
 
