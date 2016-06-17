@@ -1,4 +1,4 @@
-(defproject com.walmartlabs/datascope "0.1.0"
+(defproject walmartlabs/datascope "0.1.0"
   :description "Visualization of Clojure data structures using Graphviz"
   :url "https://github.com/walmartlabs/datascope"
   :license {:name "Apache Sofware License 2.0"
