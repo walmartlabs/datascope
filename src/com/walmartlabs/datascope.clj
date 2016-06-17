@@ -36,15 +36,14 @@
       value (e.g., keyed on identity, not on value).
 
     :nodes
-    : a map (keyed on composite type) of nodes of that type, keyed on node id.
-      Value is the rendered text for the node.
+    : map from node id to the text to render for that node (outer brackets are supplied).
 
     :edges
     : map from node id to node id; the source node is may be extended with a port (e.g., \"map_1:v3\")\""))
 
-(def ^:private label-start "[label=<<table border=\"0\" cellborder=\"1\">")
+(def ^:private label-start "label=<<table border=\"0\" cellborder=\"1\">")
 
-(def ^:private label-end "</table>>]")
+(def ^:private label-end "</table>>")
 
 (defn ^:private composite-key
   [value]
@@ -123,9 +122,9 @@
     (assoc-in state [:values (composite-type value) k] node-id)))
 
 (defn ^:private add-node
-  [state value node-id node]
+  [state node-id node]
   "Add the rendered text for a node for later inclusion into the DOT output."
-  (assoc-in state [:nodes (composite-type value) node-id] node))
+  (assoc-in state [:nodes node-id] node))
 
 (defn ^:private add-empty
   [state value]
@@ -133,7 +132,8 @@
         empty-label (pr-str value)]
     [(-> state
          (add-composite-mapping value node-id)
-         (assoc-in [:nodes :empty node-id] (str "[label=" \" empty-label \" \])))
+         (assoc-in [:nodes node-id]
+                   (str "label=" \" empty-label \" " shape=none, style=\"\", fontsize=32")))
      node-id]))
 
 (defn ^:private render-map
@@ -157,12 +157,13 @@
           [state' key-value-rows] (reduce reducer
                                           [(add-composite-mapping state m node-id) ""]
                                           ikvs)]
-      [(add-node state' m node-id (str label-start
-                                       "<tr><td colspan=\"2\" border=\"0\">"
-                                       (type-name m)
-                                       "</td></tr>"
-                                       key-value-rows
-                                       label-end))
+      [(add-node state' node-id
+                 (str label-start
+                      "<tr><td colspan=\"2\" border=\"0\">"
+                      (type-name m)
+                      "</td></tr>"
+                      key-value-rows
+                      label-end))
        node-id])))
 
 (defn ^:private render-ref
@@ -178,7 +179,8 @@
                    ">")
         state-2 (cond-> (-> state-1
                             (add-composite-mapping ref node-id)
-                            (add-node ref node-id (str "[label=" label "]")))
+                            (add-node node-id
+                                      (str "shape=ellipse, label=" label)))
                   target-node-id (assoc-in [:edges node-id] target-node-id))]
     [state-2 node-id]))
 
@@ -199,10 +201,12 @@
     (add-empty state v)
     (let [node-id (value->node-id v)
           [state' element-rows] (render-elements state node-id v)]
-      [(add-node state' v node-id (str label-start
-                                        (type-name-row v)
-                                        element-rows
-                                        label-end))
+      [(add-node state' node-id
+                 (str "style=filled, "
+                      label-start
+                      (type-name-row v)
+                      element-rows
+                      label-end))
        node-id])))
 
 (defn ^:private render-seq
@@ -221,10 +225,11 @@
           [state' element-rows] (reduce reducer
                                         [(add-composite-mapping state coll node-id) ""]
                                         ivs)]
-      [(add-node state' coll node-id (str label-start
-                                          (type-name-row coll)
-                                          element-rows
-                                          label-end))
+      [(add-node state' node-id
+                 (str label-start
+                      (type-name-row coll)
+                      element-rows
+                      label-end))
        node-id])))
 
 (defn ^:private render-set
@@ -233,9 +238,10 @@
     (add-empty state coll)
     (let [node-id (value->node-id coll)
           [state' label-chunk] (render-elements state node-id (vec coll))]
-      [(add-node state' coll node-id (str label-start
-                                           (type-name-row coll) label-chunk
-                                           label-end))
+      [(add-node state' node-id
+                 (str label-start
+                      (type-name-row coll) label-chunk
+                      label-end))
        node-id])))
 
 (extend-protocol Composite
@@ -274,13 +280,6 @@
 
   (composite-type [_] :ref))
 
-(defn ^:private render-nodes
-  [nodes key defaults]
-  (when-not (str/blank? defaults)
-    (println (str " \n  node [" defaults "];")))
-  (doseq [[id text] (get nodes key)]
-    (println (str "  " id " " text ";"))))
-
 (defn dot
   "Given a root composite value, returns the DOT (Graphviz
   description) of the "
@@ -289,16 +288,16 @@
   (let [[{:keys [nodes edges]}] (render-composite root-value {})]
     (with-out-str
       (println "digraph G {\n  rankdir=LR;")
-      (println "  node [shape=plaintext, style=\"rounded,filled\", fillcolor=\"#FAF0E6\"];")
-      (render-nodes nodes :map "")
-      (render-nodes nodes :seq "")
-      (render-nodes nodes :vec "style=filled")
-      (render-nodes nodes :set "style=filled")
-      (render-nodes nodes :ref "shape=ellipse")
-      (render-nodes nodes :empty "shape=none, style=\"\", fontsize=32")
+      (println "\n  node [shape=plaintext, style=\"rounded,filled\", fillcolor=\"#FAF0E6\"];")
+
+      (doseq [[id text] nodes]
+        (println (str "  " id " [" text "];")))
+
       (println)
+
       (doseq [[from to] edges]
         (println (str "  " from " -> " to ";")))
+
       (println "}"))))
 
 (defn view
