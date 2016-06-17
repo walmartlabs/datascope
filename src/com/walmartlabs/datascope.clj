@@ -39,14 +39,7 @@
     : map from value id to rendered text for the node; rendering adds a value to this map.
 
     :edges
-    : map from node id to node id; the source node is may be extended with a port (e.g., \"map_1:v3\")\"")
-
-  (use-identity? [v]
-    "Returns true if it is not possible to cache the mapping of value to node id.
-    This is true for (most) sequences, as sequences can be infinite and therefore
-    make bad keys (it takes infinitely long to compute the key hash).
-
-    It is false for all finite types (map, vector, and so forth)."))
+    : map from node id to node id; the source node is may be extended with a port (e.g., \"map_1:v3\")\""))
 
 (def ^:private label-start "[label=<<table border=\"0\" cellborder=\"1\">")
 
@@ -68,10 +61,7 @@
 
 (defn ^:private composite-key
   [value]
-  (if (use-identity? value)
-    (System/identityHashCode value)
-    value))
-
+  (System/identityHashCode value))
 
 (defn ^:private maybe-render
   "Maybe render the value (recursively).
@@ -264,7 +254,6 @@
     (render-map state m))
 
   (composite-type [_] :map)
-  (use-identity? [_] false)
 
   IPersistentVector
 
@@ -272,14 +261,12 @@
     (render-vector state v))
 
   (composite-type [_] :vec)
-  (use-identity? [_] false)
 
   IPersistentSet
   (render-composite [set state]
     (render-set state set))
 
   (composite-type [_] :set)
-  (use-identity? [_] false)
 
   ISeq
 
@@ -288,16 +275,12 @@
 
   (composite-type [_] :seq)
 
-  (use-identity? [coll] (seq coll))
-
   IDeref
 
   (render-composite [ref state]
     (render-ref state ref))
 
-  (composite-type [_] :ref)
-
-  (use-identity? [_] true))
+  (composite-type [_] :ref))
 
 (defn ^:private render-nodes
   [nodes key defaults]
