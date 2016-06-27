@@ -2,6 +2,8 @@
 
 A library that can be used to render typical Clojure data structures using
 Graphviz.
+ 
+[![Clojars Project](https://img.shields.io/clojars/v/walmartlabs/datascope.svg)](https://clojars.org/walmartlabs/datascope)
 
 [API Documentation](http://walmartlabs.github.io/datascope/)
 
