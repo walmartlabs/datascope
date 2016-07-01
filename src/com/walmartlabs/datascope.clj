@@ -20,6 +20,9 @@
 (defprotocol Composite
   "Other types wrap one or more values (a map, sequence, vector, reference, etc.)"
 
+  (render-as-scalar? [v]
+    "Returns true if should be rendered as a scalar. Typically, this means an empty collection.")
+
   (composite-type [v]
     "Returns :map, :seq, :vec. This key is used when identifying empty values and so forth.")
 
@@ -64,8 +67,14 @@
   For scalar values, returns a tuple of state and nil."
   [state v]
   ;; Anything not a Composite is a Scalar
-  (if-not (satisfies? Composite v)
+  (cond
+    (not (satisfies? Composite v))
     [state nil]
+
+    (render-as-scalar? v)
+    [state nil]
+
+    :else
     (let [type (composite-type v)
           k (composite-key v)]
       (if-let [node-id (get-in state [:values type k])]
@@ -126,45 +135,33 @@
   "Add the rendered text for a node for later inclusion into the DOT output."
   (assoc-in state [:nodes node-id] node))
 
-(defn ^:private add-empty
-  [state value]
-  (let [node-id (str "empty_" (name (composite-type value)))
-        empty-label (pr-str value)]
-    [(-> state
-         (add-composite-mapping value node-id)
-         (assoc-in [:nodes node-id]
-                   (str "label=" \" empty-label \" " shape=none, style=\"\", fontsize=32")))
-     node-id]))
-
 (defn ^:private render-map
   [state m]
-  (if (empty? m)
-    (add-empty state m)
-    (let [node-id (value->node-id m)
-          reduction-step (fn [state k v i]
-                           (let [[k-state k-chunk] (cell state node-id :k k i)
-                                 [v-state v-chunk] (cell k-state node-id :v v i)]
-                             [v-state (str "<tr>"
-                                           k-chunk
-                                           v-chunk
-                                           "</tr>")]))
-          ikvs (map-indexed (fn [i [k v]]
-                              [i k v])
-                            m)
-          reducer (fn [[state rows-chunk] [i k v]]
-                    (let [[state' row-chunk] (reduction-step state k v i)]
-                      [state' (str rows-chunk row-chunk)]))
-          [state' key-value-rows] (reduce reducer
-                                          [(add-composite-mapping state m node-id) ""]
-                                          ikvs)]
-      [(add-node state' node-id
-                 (str label-start
-                      "<tr><td colspan=\"2\" border=\"0\">"
-                      (type-name m)
-                      "</td></tr>"
-                      key-value-rows
-                      label-end))
-       node-id])))
+  (let [node-id (value->node-id m)
+        reduction-step (fn [state k v i]
+                         (let [[k-state k-chunk] (cell state node-id :k k i)
+                               [v-state v-chunk] (cell k-state node-id :v v i)]
+                           [v-state (str "<tr>"
+                                         k-chunk
+                                         v-chunk
+                                         "</tr>")]))
+        ikvs (map-indexed (fn [i [k v]]
+                            [i k v])
+                          m)
+        reducer (fn [[state rows-chunk] [i k v]]
+                  (let [[state' row-chunk] (reduction-step state k v i)]
+                    [state' (str rows-chunk row-chunk)]))
+        [state' key-value-rows] (reduce reducer
+                                        [(add-composite-mapping state m node-id) ""]
+                                        ikvs)]
+    [(add-node state' node-id
+               (str label-start
+                    "<tr><td colspan=\"2\" border=\"0\">"
+                    (type-name m)
+                    "</td></tr>"
+                    key-value-rows
+                    label-end))
+     node-id]))
 
 (defn ^:private render-ref
   [state ref]
@@ -197,56 +194,52 @@
 
 (defn ^:private render-vector
   [state v]
-  (if (empty? v)
-    (add-empty state v)
-    (let [node-id (value->node-id v)
-          [state' element-rows] (render-elements state node-id v)]
-      [(add-node state' node-id
-                 (str "style=filled, "
-                      label-start
-                      (type-name-row v)
-                      element-rows
-                      label-end))
-       node-id])))
+  (let [node-id (value->node-id v)
+        [state' element-rows] (render-elements state node-id v)]
+    [(add-node state' node-id
+               (str "style=filled, "
+                    label-start
+                    (type-name-row v)
+                    element-rows
+                    label-end))
+     node-id]))
 
 (defn ^:private render-seq
   [state coll]
-  (if (empty? coll)
-    (add-empty state coll)
-    (let [node-id (value->node-id coll)
-          max-seq (:max-seq state 10)
-          reducer (fn [[state label-chunk] [i v]]
-                    (if (= i max-seq)
-                      (reduced [state (str label-chunk "<tr><td border=\"0\">...</td></tr>")])
-                      (let [[state' cell-chunk] (cell state node-id :i v i)]
-                        [state' (str label-chunk "<tr>" cell-chunk "</tr>")])))
-          ivs (->> (map vector (iterate inc 0) coll)
-                   (take (inc max-seq)))
-          [state' element-rows] (reduce reducer
-                                        [(add-composite-mapping state coll node-id) ""]
-                                        ivs)]
-      [(add-node state' node-id
-                 (str label-start
-                      (type-name-row coll)
-                      element-rows
-                      label-end))
-       node-id])))
+  (let [node-id (value->node-id coll)
+        max-seq (:max-seq state 10)
+        reducer (fn [[state label-chunk] [i v]]
+                  (if (= i max-seq)
+                    (reduced [state (str label-chunk "<tr><td border=\"0\">...</td></tr>")])
+                    (let [[state' cell-chunk] (cell state node-id :i v i)]
+                      [state' (str label-chunk "<tr>" cell-chunk "</tr>")])))
+        ivs (->> (map vector (iterate inc 0) coll)
+                 (take (inc max-seq)))
+        [state' element-rows] (reduce reducer
+                                      [(add-composite-mapping state coll node-id) ""]
+                                      ivs)]
+    [(add-node state' node-id
+               (str label-start
+                    (type-name-row coll)
+                    element-rows
+                    label-end))
+     node-id]))
 
 (defn ^:private render-set
   [state coll]
-  (if (empty? coll)
-    (add-empty state coll)
-    (let [node-id (value->node-id coll)
-          [state' label-chunk] (render-elements state node-id (vec coll))]
-      [(add-node state' node-id
-                 (str label-start
-                      (type-name-row coll) label-chunk
-                      label-end))
-       node-id])))
+  (let [node-id (value->node-id coll)
+        [state' label-chunk] (render-elements state node-id (vec coll))]
+    [(add-node state' node-id
+               (str label-start
+                    (type-name-row coll) label-chunk
+                    label-end))
+     node-id]))
 
 (extend-protocol Composite
 
   IPersistentMap
+
+  (as-scalar? [m] (empty? m))
 
   (render-composite [m state]
     (render-map state m))
@@ -255,18 +248,25 @@
 
   IPersistentVector
 
+  (as-scalar? [v] (empty? v))
+
   (render-composite [v state]
     (render-vector state v))
 
   (composite-type [_] :vec)
 
   IPersistentSet
+
+  (as-scalar? [s] (empty? s))
+
   (render-composite [set state]
     (render-set state set))
 
   (composite-type [_] :set)
 
   ISeq
+
+  (as-scalar? [s] (empty? s))
 
   (render-composite [coll state]
     (render-seq state coll))
@@ -275,6 +275,8 @@
 
   IDeref
 
+  (as-scalar? [_] false)
+
   (render-composite [ref state]
     (render-ref state ref))
 
@@ -282,7 +284,7 @@
 
 (defn dot
   "Given a root composite value, returns the DOT (Graphviz
-  description) of the "
+  description) of the composite value."
   [root-value]
   {:pre [(satisfies? Composite root-value)]}
   (let [[{:keys [nodes edges]}] (render-composite root-value {})]

@@ -37,8 +37,6 @@ that displays the following:
 
 * Composite types are labeled with their (abbreviated) type.
 
-* The empty map, vector, hash, and sequence values are rendered specially.
-
 * Refs, such as Atoms and Vars, are supported.
 
 * Sequences are abbreviated; Maps, Sets, and Vectors are always fully rendered.
