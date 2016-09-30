@@ -21,8 +21,12 @@
         b {:map :b
            :a a}]
     {:map :root
+     :string "a simple string"
      :a a
      :b b
+     :nil nil
+     :my-fn #(inc %)
+     :core-fn inc
      :vector [:vector :c a b]
      :set #{:set a b}
      :atom (atom a)}))
@@ -60,3 +64,4 @@
   (-> (dot root-object)
       viz/dot->image
       (viz/save-image file-name)))
+

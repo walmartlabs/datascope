@@ -1,30 +1,56 @@
 (ns com.walmartlabs.datascope
   (:require [rhizome.viz :as viz]
-            [clojure.string :as str])
-  (:import [clojure.lang ISeq IPersistentVector IPersistentMap IDeref IPersistentSet]))
+            [clojure.string :as str]
+            [io.aviso.exception :refer [demangle]])
+  (:import [clojure.lang ISeq IPersistentVector IPersistentMap IDeref IPersistentSet AFn]))
+
+(defn ^:private html-safe
+  [s]
+  (-> s
+      (str/replace "&" "&amp;")
+      (str/replace "<" "&lt;")
+      (str/replace ">" "&gt;")))
+
+(defn ^:private demangle-fn
+  [f]
+  (let [class-name (-> f ^Class type .getName)
+        [namespace-name & raw-function-ids] (str/split class-name #"\$")
+        ;; Clojure adds __1234 unique ids to the ends of things, remove those.
+        function-ids (map #(str/replace % #"__\d+" "") raw-function-ids)]
+    ;; The assumption is that no real namespace or function name will contain underscores (the underscores
+    ;; are name-mangled dashes).
+    (->>
+      (cons namespace-name function-ids)
+      (map demangle)
+      (str/join "/"))))
 
 (defprotocol Scalar
-  "Scalars appear as keys and values and this assists with rendering of them as such."
+  "Scalars appear as keys and values and this protocol assists with rendering of them as such."
 
   (as-label [v]
-    "Return the text representation of a value such that it can be included as a label for a key or value."))
+    "Return the text representation of a value such that it can be included as a label for a key or value.
+
+    The returned value should be HTML safe."))
 
 (extend-protocol Scalar
 
   Object
-  (as-label [v] (pr-str v))
+  (as-label [v] (-> v pr-str html-safe))
+
+  AFn
+  (as-label [f]
+    (str "<i>" (demangle-fn f) "</i>"))
 
   nil
-  (as-label [_] "nil"))
+  (as-label [_] "<i>nil</i>"))
 
 (defprotocol Composite
-  "Other types wrap one or more values (a map, sequence, vector, reference, etc.)"
-
+  "A non-scalar type, which wraps one or more values (e.g., map, sequence, vector, reference, etc.)"
   (render-as-scalar? [v]
     "Returns true if should be rendered as a scalar. Typically, this means an empty collection.")
 
   (composite-type [v]
-    "Returns :map, :seq, :vec. This key is used when identifying empty values and so forth.")
+    "Returns :map, :seq, :vec, etc. This key is used when generating Graphviz node ids.")
 
   (render-composite [v state]
     "Renders the value as a new node (this is often quite recursive).
@@ -81,13 +107,6 @@
         [state node-id]
         (render-composite v state)))))
 
-(defn ^:private html-safe
-  [s]
-  (-> s
-      (str/replace "&" "&amp;")
-      (str/replace "<" "&lt;")
-      (str/replace ">" "&gt;")))
-
 (defn ^:private type-name
   [obj]
   (str "<font point-size=\"8\">"
@@ -116,7 +135,7 @@
                       (str "<td port=" \" port \" "> ")
                       "<td>")
                     (when scalar?
-                      (-> v as-label html-safe))
+                      (as-label v))
                     "</td>")]))
 
 (defn ^:private add-composite-mapping
@@ -239,7 +258,7 @@
 
   IPersistentMap
 
-  (as-scalar? [m] (empty? m))
+  (render-as-scalar? [m] (empty? m))
 
   (render-composite [m state]
     (render-map state m))
@@ -248,7 +267,7 @@
 
   IPersistentVector
 
-  (as-scalar? [v] (empty? v))
+  (render-as-scalar? [v] (empty? v))
 
   (render-composite [v state]
     (render-vector state v))
@@ -257,7 +276,7 @@
 
   IPersistentSet
 
-  (as-scalar? [s] (empty? s))
+  (render-as-scalar? [s] (empty? s))
 
   (render-composite [set state]
     (render-set state set))
@@ -266,7 +285,7 @@
 
   ISeq
 
-  (as-scalar? [s] (empty? s))
+  (render-as-scalar? [s] (empty? s))
 
   (render-composite [coll state]
     (render-seq state coll))
@@ -275,7 +294,7 @@
 
   IDeref
 
-  (as-scalar? [_] false)
+  (render-as-scalar? [_] false)
 
   (render-composite [ref state]
     (render-ref state ref))
