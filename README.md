@@ -41,6 +41,8 @@ that displays the following:
 
 * Sequences are abbreviated; Maps, Sets, and Vectors are always fully rendered.
 
+* Functions are rendered as their de-mangled Clojure name.
+
 Using the rest of the Rhizome API, you can easily save the images to disk
 instead of viewing them in a frame.
 
@@ -69,8 +71,6 @@ And, remember, Clojure code is data:
 * Open up more internal API to support rendering of more types
 
 * Rendering of JavaBeans
-
-* Render functions specially.
 
 ## License
 
