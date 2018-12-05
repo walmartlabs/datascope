@@ -5,7 +5,7 @@ Graphviz.
  
 [![Clojars Project](https://img.shields.io/clojars/v/walmartlabs/datascope.svg)](https://clojars.org/walmartlabs/datascope)
 
-[API Documentation](http://walmartlabs.github.io/datascope/)
+[API Documentation](http://walmartlabs.github.io/apidocs/datascope/)
 
 ## Usage
 
