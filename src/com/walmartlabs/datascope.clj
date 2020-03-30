@@ -2,7 +2,7 @@
   (:require [rhizome.viz :as viz]
             [clojure.string :as str]
             [io.aviso.exception :refer [demangle]])
-  (:import [clojure.lang ISeq IPersistentVector IPersistentMap IDeref IPersistentSet AFn]))
+  (:import [clojure.lang ISeq IPersistentVector IPersistentMap IDeref IPersistentSet AFn Symbol]))
 
 (defn ^:private html-safe
   [s]
@@ -36,6 +36,10 @@
 
   Object
   (as-label [v] (-> v pr-str html-safe))
+
+  Symbol
+  (as-label [v]
+    (str "<i>" (-> v pr-str html-safe) "</i>"))
 
   AFn
   (as-label [f]
