@@ -1,0 +1,4 @@
+{:paths ["src"]
+ :deps  {org.clojure/clojure {:mvn/version "1.8.0"}
+         io.aviso/pretty     {:mvn/version "0.1.30"}
+         rhizome             {:mvn/version "0.2.5"}}}
